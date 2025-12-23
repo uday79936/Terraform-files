@@ -15,20 +15,18 @@ provider "aws" {
 
 resource "aws_security_group" "python_sg" {
   name        = "python-app-sg"
-  description = "Allow SSH + HTTP"
+  description = "Allow SSH and Flask"
 
   ingress {
-    description = "HTTP"
-    from_port   = 5000
-    to_port     = 5000
+    from_port   = 22
+    to_port     = 22
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
   ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
+    from_port   = 5000
+    to_port     = 5000
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
@@ -44,31 +42,52 @@ resource "aws_security_group" "python_sg" {
 resource "aws_instance" "python_server" {
   ami                    = var.ami_id
   instance_type          = "t2.micro"
-  vpc_security_group_ids = [aws_security_group.python_sg.id]
   key_name               = var.key_name
+  vpc_security_group_ids = [aws_security_group.python_sg.id]
 
   tags = {
     Name = "Terraform-python-app"
   }
 
-  connection {
-    type        = "ssh"
-    user        = "ec2-user"
-    private_key = file("C:/Users/Asus/downloads/pro.pem")
-    host        = self.public_ip
-  }
+  user_data = <<-EOF
+    #!/bin/bash
+    yum update -y
+    yum install -y python3 python3-pip
 
-  provisioner "file" {
-    source      = "app.py"
-    destination = "/home/ec2-user/app.py"
-  }
+    pip3 install flask
 
-  provisioner "remote-exec" {
-    inline = [
-      "sudo yum update -y",
-      "sudo yum install python3-pip -y",
-      "pip install flask",
-      "nohup python3 /home/ec2-user/app.py &"
-    ]
-  }
+    cat << 'APP' > /home/ec2-user/app.py
+    from flask import Flask
+    app = Flask(__name__)
+
+    @app.route("/")
+    def hello():
+        return "Hello all Welcome to Terraform session at 2:00 PM!"
+
+    if __name__ == "__main__":
+        app.run(host="0.0.0.0", port=5000)
+    APP
+
+    chown ec2-user:ec2-user /home/ec2-user/app.py
+
+    cat << 'SERVICE' > /etc/systemd/system/flask.service
+    [Unit]
+    Description=Flask Application
+    After=network.target
+
+    [Service]
+    User=ec2-user
+    WorkingDirectory=/home/ec2-user
+    ExecStart=/usr/bin/python3 /home/ec2-user/app.py
+    Restart=always
+
+    [Install]
+    WantedBy=multi-user.target
+    SERVICE
+
+    systemctl daemon-reexec
+    systemctl daemon-reload
+    systemctl enable flask
+    systemctl start flask
+  EOF
 }
