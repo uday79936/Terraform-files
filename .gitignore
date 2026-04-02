@@ -1,0 +1,8 @@
+# Terraform files
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# Optional (recommended)
+*.zip
+*.exe
